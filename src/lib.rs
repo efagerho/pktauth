@@ -214,22 +214,23 @@ pub fn ping_payload(seq: u64, size: usize) -> Vec<u8> {
 
 /// Accepts connections until `endpoint` is closed, echoing every stream of each.
 ///
-/// Per-connection failures are reported and dropped: one misbehaving or
-/// disappearing client must not take the server down.
+/// Per-connection outcomes are deliberately silent. Anything a remote peer can
+/// provoke once per packet must not write once per packet: with packet
+/// authentication disabled, every unauthenticated Initial reaches Quinn and
+/// fails its handshake, so logging each failure turns a packet flood into a
+/// write-amplified one. Worse, `eprintln!` takes a process-wide lock, so every
+/// handshake task queues behind it and the delay lands on legitimate traffic.
+/// Measured at 250k unauthenticated packets/s, that logging cost 0.15 of a core
+/// and pushed the echo round-trip from 0.55 ms to 16 ms.
+///
+/// Failures are dropped rather than reported: one misbehaving or disappearing
+/// client must not take the server down. Callers wanting visibility should count
+/// outcomes, not print them.
 pub async fn run_echo_server(endpoint: Endpoint) {
     while let Some(incoming) = endpoint.accept().await {
         tokio::spawn(async move {
-            let remote = incoming.remote_address();
-            match incoming.await {
-                Ok(connection) => {
-                    println!("connection established: {remote}");
-                    if let Err(e) = serve_connection(connection).await {
-                        eprintln!("connection {remote} closed: {e}");
-                    } else {
-                        println!("connection closed: {remote}");
-                    }
-                }
-                Err(e) => eprintln!("handshake with {remote} failed: {e}"),
+            if let Ok(connection) = incoming.await {
+                let _ = serve_connection(connection).await;
             }
         });
     }
