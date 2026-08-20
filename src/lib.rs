@@ -111,6 +111,9 @@ pub fn self_signed_server_config(subject_alt_names: Vec<String>) -> Result<Serve
 
     let mut config = ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(crypto)?));
     config.transport_config(Arc::new(transport_config()));
+    // Tokens bind an address pair, so a peer that migrates stops authenticating
+    // and stalls until the idle timeout. Refuse migration up front instead.
+    config.migration(false);
 
     Ok(ServerCredentials { config, cert_der })
 }
